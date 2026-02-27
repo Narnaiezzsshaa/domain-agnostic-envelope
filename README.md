@@ -1,5 +1,7 @@
 # Domain-Agnostic Envelope
 
+The demo isn't the product. The demo is the filter.
+
 An interactive demonstrator for governance envelope architecture.
 
 The system processes requests through a bounded state space. Admissible requests traverse the envelope. Requests that fall outside the envelope encounter its boundaries.
