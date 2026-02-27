@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Governance Envelope Demonstrator — Soft Armor Labs</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Source+Sans+3:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body, #root { height: 100%; }
+  body { background: #f8f7f4; }
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #ddd9d1; border-radius: 3px; }
+  input:focus { outline: none; }
+  @keyframes pulseGlow { 0%,100% { box-shadow: 0 0 6px rgba(43,95,153,.08); } 50% { box-shadow: 0 0 16px rgba(43,95,153,.16); } }
+  @keyframes haltPulse { 0%,100% { box-shadow: 0 0 6px rgba(180,35,24,.06); } 50% { box-shadow: 0 0 18px rgba(180,35,24,.15); } }
+  @keyframes slideIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes fadeShake { 0% { transform: translateX(0); } 15% { transform: translateX(-3px); } 30% { transform: translateX(3px); } 45% { transform: translateX(-2px); } 60% { transform: translateX(2px); } 100% { transform: translateX(0); } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+/* ── Envelope evaluation (opaque to UI) ── */
+const _e = (t) => {
+  const l = t.trim().toLowerCase();
+  const w = l.split(/\s+/);
+  if (w.length < 3) return 0;
+  const _a = [
+    [/\b(it|that|this)\b/,/\b(thing|stuff|situation|issue)\b/],
+    [/\bwhat we\b/,/\b(discussed|talked|said)\b/],
+    [/\b(you know|whatever|somehow|something)\b/],
+    [/\b(handle|deal with|take care of)\b/,/\b(it|that|this)\b/],
+  ];
+  for (const p of _a) {
+    if (p.every(r => r.test(l)) && w.length < 12) return 0;
+  }
+  const _b = [
+    /\b(approv|authoriz|finaliz)/,/\b(submit|commit|publish|deploy)\b/,
+    /\b(sign off|wire|transfer fund)/,/\b(purchas|buy|execut|send to)\b/,
+    /\bconfirm (payment|order|purchase)/,
+  ];
+  for (const r of _b) { if (r.test(l)) return 0; }
+  const _c = [
+    /\band (then |also |additionally )/,/\b(plus|as well as|on top of)\b/,
+    /\bwhile you'?re at it\b/,/\band (schedule|draft|send|email|create|build)\b/,
+  ];
+  for (const r of _c) { if (r.test(l)) return 0; }
+  if (!/[a-z]{3,}/.test(l)) return 0;
+  return 1;
+};
+
+/* ── Generic halt messages (no diagnostic specificity) ── */
+const _hm = [
+  "This request cannot proceed under this envelope.",
+  "The requested transition does not exist in this envelope.",
+  "This request falls outside the admissible state space.",
+];
+const _gh = () => _hm[Math.floor(Math.random() * _hm.length)];
+
+/* ── Typewriter ── */
+const TypeWriter = ({ text, speed, onComplete }) => {
+  const [d, setD] = useState("");
+  const i = useRef(0);
+  useEffect(() => {
+    setD(""); i.current = 0;
+    const iv = setInterval(() => {
+      if (i.current < text.length) { setD(text.slice(0, i.current + 1)); i.current++; }
+      else { clearInterval(iv); onComplete && onComplete(); }
+    }, speed || 20);
+    return () => clearInterval(iv);
+  }, [text]);
+  return React.createElement("span", null,
+    d,
+    React.createElement("span", { style: { opacity: d.length < text.length ? 1 : 0, transition: "opacity 0.3s" } }, "▌")
+  );
+};
+
+/* ── State definitions ── */
+const PHASES = [
+  { id: "receive", label: "Receiving", icon: "◎" },
+  { id: "verify", label: "Verifying", icon: "◈" },
+  { id: "draft", label: "Drafting", icon: "◇" },
+  { id: "review", label: "Review", icon: "◆" },
+  { id: "decision", label: "Your Decision", icon: "⬡" },
+];
+
+const c = {
+  bg: "#f8f7f4", bgSub: "#f0eee9", bgP: "#ffffff",
+  bd: "#ddd9d1", bdL: "#eae7e0",
+  tx: "#1a1a1a", txS: "#4a4a4a", txM: "#7a7670", txF: "#aaa59d",
+  ac: "#2b5f99", acL: "#3a7bc8", acBg: "rgba(43,95,153,.05)", acBd: "rgba(43,95,153,.18)",
+  ht: "#b42318", htBg: "rgba(180,35,24,.03)", htBd: "rgba(180,35,24,.14)",
+  ok: "#1a6b3c", okBg: "rgba(26,107,60,.03)", okBd: "rgba(26,107,60,.14)",
+  vi: "#5c88b0", viBg: "rgba(92,136,176,.06)",
+};
+const ss = (f) => ({ fontFamily: `'Source Sans 3',sans-serif`, ...f });
+const ms = (f) => ({ fontFamily: `'JetBrains Mono','Fira Code',monospace`, ...f });
+const bs = (f) => ({ fontFamily: `'Libre Baskerville',Georgia,serif`, ...f });
+
+/* ── Main ── */
+function App() {
+  const [phase, setPhase] = useState(null);
+  const [input, setInput] = useState("");
+  const [log, setLog] = useState([]);
+  const [halted, setHalted] = useState(false);
+  const [done, setDone] = useState(false);
+  const [typing, setTyping] = useState(false);
+  const [typingEntry, setTypingEntry] = useState(null);
+  const [draft, setDraft] = useState("");
+  const [envelopeActive, setEnvelopeActive] = useState(false);
+  const logRef = useRef(null);
+
+  useEffect(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }, [log, typingEntry]);
+
+  const addLog = (msg, type) => setLog(p => [...p, { msg, type, id: Date.now() + Math.random() }]);
+
+  const showTyping = (msg, type, cb) => {
+    setTyping(true);
+    setTypingEntry({ msg, type });
+    window.__tcb = () => { setTyping(false); setTypingEntry(null); addLog(msg, type); cb && cb(); };
+  };
+
+  const handleSubmit = () => {
+    if (!input.trim() || typing || phase !== null) return;
+    const txt = input.trim();
+    setPhase("receive");
+    setHalted(false);
+    setDone(false);
+    setDraft("");
+    setEnvelopeActive(true);
+    addLog(txt, "input");
+
+    setTimeout(() => {
+      setPhase("verify");
+      const ok = _e(txt);
+      if (ok) {
+        showTyping("Input verified. Proceeding within envelope.", "normal", () => {
+          setTimeout(() => {
+            setPhase("draft");
+            setDraft('Draft based on your request: "' + txt + '"');
+            showTyping("Draft generated within envelope constraints.", "normal", () => {
+              setTimeout(() => {
+                setPhase("review");
+                addLog("Draft presented for review. Choose an action below.", "review");
+              }, 400);
+            });
+          }, 400);
+        });
+      } else {
+        setHalted(true);
+        setPhase("halt");
+        showTyping(_gh(), "halt", null);
+      }
+    }, 600);
+  };
+
+  const handleReview = (action) => {
+    if (typing) return;
+    if (action === "approve") {
+      setPhase("decision"); setDone(true);
+      showTyping("Decision recorded. Execution, if any, is yours.", "complete", null);
+    } else if (action === "changes") {
+      addLog("Changes requested. Draft remains within envelope.", "normal");
+    } else if (action === "finalize") {
+      setHalted(true); setPhase("halt");
+      showTyping("This transition does not exist in this envelope. The system cannot finalize or originate binding action.", "halt", null);
+    }
+  };
+
+  const handleReset = () => {
+    setPhase(null); setInput(""); setLog([]); setHalted(false); setDone(false);
+    setTyping(false); setTypingEntry(null); setDraft(""); setEnvelopeActive(false);
+  };
+
+  const getStatus = (id) => {
+    if (!phase) return "inactive";
+    const order = ["receive","verify","draft","review","decision"];
+    const ci = order.indexOf(phase === "halt" ? "verify" : phase);
+    const ti = order.indexOf(id);
+    if (phase === "halt" && id === "verify") return "halting";
+    if (id === phase) return halted ? "halting" : "active";
+    if (ti >= 0 && ci >= 0 && ti < ci) return "visited";
+    return "inactive";
+  };
+
+  /* ── Render helpers ── */
+  const renderLogEntry = (entry) => {
+    if (entry.type === "input") {
+      return React.createElement("div", {
+        style: { padding: "14px 16px", background: c.bgP, border: `1px solid ${c.bd}`, borderRadius: "8px", marginBottom: "12px" }
+      },
+        React.createElement("div", { style: { fontSize: "10px", color: c.txM, letterSpacing: "2px", textTransform: "uppercase", fontWeight: 600, marginBottom: "6px", ...ss() } }, "Request Received"),
+        React.createElement("div", { style: { fontSize: "14px", color: c.txS, lineHeight: 1.6, fontStyle: "italic", ...bs() } }, '"' + entry.msg + '"')
+      );
+    }
+    if (entry.type === "halt") {
+      return React.createElement("div", {
+        style: { padding: "16px 18px", background: c.htBg, border: `1px solid ${c.htBd}`, borderRadius: "8px", marginBottom: "8px" }
+      },
+        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" } },
+          React.createElement("span", { style: { fontSize: "15px", color: c.ht } }, "⊘"),
+          React.createElement("span", { style: { fontSize: "10px", letterSpacing: "2.5px", color: c.ht, fontWeight: 700, textTransform: "uppercase", ...ss() } }, "Envelope Boundary")
+        ),
+        React.createElement("div", { style: { fontSize: "13px", color: "#6a2a22", lineHeight: 1.8, ...ss() } }, entry.msg),
+        React.createElement("div", { style: { marginTop: "12px", paddingTop: "10px", borderTop: `1px solid ${c.htBd}`, fontSize: "11px", color: c.txM, fontStyle: "italic", ...bs() } },
+          "The execution path does not exist. This is not a refusal. It is a structural absence."
+        )
+      );
+    }
+    if (entry.type === "complete") {
+      return React.createElement("div", {
+        style: { padding: "16px 18px", background: c.okBg, border: `1px solid ${c.okBd}`, borderRadius: "8px", marginBottom: "8px" }
+      },
+        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" } },
+          React.createElement("span", { style: { fontSize: "15px", color: c.ok } }, "⬡"),
+          React.createElement("span", { style: { fontSize: "10px", letterSpacing: "2.5px", color: c.ok, fontWeight: 700, textTransform: "uppercase", ...ss() } }, "Human Authority Boundary")
+        ),
+        React.createElement("div", { style: { fontSize: "13px", color: "#1e4a2c", lineHeight: 1.8, ...ss() } }, entry.msg),
+        React.createElement("div", { style: { marginTop: "12px", paddingTop: "10px", borderTop: `1px solid ${c.okBd}`, fontSize: "11px", color: c.txM, fontStyle: "italic", ...bs() } },
+          "The system has traversed the admissible state space. Final action requires human instantiation."
+        )
+      );
+    }
+    return React.createElement("div", { style: { display: "flex", gap: "14px", padding: "10px 0" } },
+      React.createElement("div", { style: { fontSize: "13px", color: entry.type === "review" ? c.tx : c.txS, lineHeight: 1.7, ...ss() } }, entry.msg)
+    );
+  };
+
+  const renderTypingEntry = () => {
+    if (!typingEntry) return null;
+    if (typingEntry.type === "halt") {
+      return React.createElement("div", {
+        style: { padding: "16px 18px", background: c.htBg, border: `1px solid ${c.htBd}`, borderRadius: "8px", marginBottom: "8px", animation: "slideIn 0.3s ease-out" }
+      },
+        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" } },
+          React.createElement("span", { style: { fontSize: "15px", color: c.ht } }, "⊘"),
+          React.createElement("span", { style: { fontSize: "10px", letterSpacing: "2.5px", color: c.ht, fontWeight: 700, textTransform: "uppercase", ...ss() } }, "Envelope Boundary")
+        ),
+        React.createElement("div", { style: { fontSize: "13px", color: "#6a2a22", lineHeight: 1.8, ...ss() } },
+          React.createElement(TypeWriter, { text: typingEntry.msg, speed: 20, onComplete: () => window.__tcb && window.__tcb() })
+        ),
+        React.createElement("div", { style: { marginTop: "12px", paddingTop: "10px", borderTop: `1px solid ${c.htBd}`, fontSize: "11px", color: c.txM, fontStyle: "italic", ...bs() } },
+          "The execution path does not exist. This is not a refusal. It is a structural absence."
+        )
+      );
+    }
+    if (typingEntry.type === "complete") {
+      return React.createElement("div", {
+        style: { padding: "16px 18px", background: c.okBg, border: `1px solid ${c.okBd}`, borderRadius: "8px", marginBottom: "8px", animation: "slideIn 0.3s ease-out" }
+      },
+        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" } },
+          React.createElement("span", { style: { fontSize: "15px", color: c.ok } }, "⬡"),
+          React.createElement("span", { style: { fontSize: "10px", letterSpacing: "2.5px", color: c.ok, fontWeight: 700, textTransform: "uppercase", ...ss() } }, "Human Authority Boundary")
+        ),
+        React.createElement("div", { style: { fontSize: "13px", color: "#1e4a2c", lineHeight: 1.8, ...ss() } },
+          React.createElement(TypeWriter, { text: typingEntry.msg, speed: 20, onComplete: () => window.__tcb && window.__tcb() })
+        ),
+        React.createElement("div", { style: { marginTop: "12px", paddingTop: "10px", borderTop: `1px solid ${c.okBd}`, fontSize: "11px", color: c.txM, fontStyle: "italic", ...bs() } },
+          "The system has traversed the admissible state space. Final action requires human instantiation."
+        )
+      );
+    }
+    return React.createElement("div", {
+      style: { display: "flex", gap: "14px", padding: "10px 0", animation: "slideIn 0.3s ease-out" }
+    },
+      React.createElement("div", { style: { fontSize: "13px", color: c.tx, lineHeight: 1.7, ...ss() } },
+        React.createElement(TypeWriter, { text: typingEntry.msg, speed: 18, onComplete: () => window.__tcb && window.__tcb() })
+      )
+    );
+  };
+
+  /* ── Main render ── */
+  return React.createElement("div", {
+    style: { minHeight: "100vh", background: c.bg, color: c.tx, display: "flex", flexDirection: "column", ...ms() }
+  },
+
+    /* Header */
+    React.createElement("div", {
+      style: { padding: "28px 36px 22px", borderBottom: `1px solid ${c.bd}`, background: c.bgP }
+    },
+      React.createElement("div", { style: { fontSize: "10px", letterSpacing: "3px", color: c.txM, fontWeight: 600, marginBottom: "8px", textTransform: "uppercase", ...ss() } },
+        "Governance Envelope Demonstrator"
+      ),
+      React.createElement("h1", { style: { fontSize: "24px", fontWeight: 400, color: c.tx, letterSpacing: "-0.3px", marginBottom: "6px", ...bs() } },
+        "The Architecture in Motion"
+      ),
+      React.createElement("p", { style: { fontSize: "13px", color: c.txM, fontStyle: "italic", ...bs() } },
+        "Before autonomy, stability. Before action, constraint."
+      )
+    ),
+
+    React.createElement("div", { style: { display: "flex", flex: 1, overflow: "hidden" } },
+
+      /* LEFT — Phases */
+      React.createElement("div", {
+        style: { width: "280px", minWidth: "280px", borderRight: `1px solid ${c.bd}`, padding: "22px 20px", display: "flex", flexDirection: "column", gap: "6px", overflowY: "auto", background: c.bgP }
+      },
+        React.createElement("div", { style: { fontSize: "10px", letterSpacing: "2.5px", color: c.txM, fontWeight: 600, marginBottom: "8px", textTransform: "uppercase", ...ss() } },
+          "Envelope State"
+        ),
+        ...PHASES.map((p, i) => {
+          const st = getStatus(p.id);
+          const isAct = st === "active";
+          const isVis = st === "visited";
+          const isHlt = st === "halting";
+          return React.createElement("div", { key: p.id },
+            React.createElement("div", {
+              style: {
+                display: "flex", alignItems: "center", gap: "12px", padding: "11px 13px", borderRadius: "8px",
+                border: `1px solid ${isHlt ? c.htBd : isAct ? c.acBd : isVis ? "rgba(92,136,176,.14)" : c.bdL}`,
+                background: isHlt ? c.htBg : isAct ? c.acBg : isVis ? c.viBg : "transparent",
+                animation: isAct ? "pulseGlow 2.5s ease-in-out infinite" : isHlt ? "haltPulse 1.5s ease-in-out infinite" : "none",
+                transition: "all 0.3s ease",
+              }
+            },
+              React.createElement("div", {
+                style: {
+                  width: "34px", height: "34px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: "15px", flexShrink: 0,
+                  border: `1.5px solid ${isHlt ? c.ht : isAct ? c.ac : isVis ? c.vi : c.bd}`,
+                  color: isHlt ? c.ht : isAct ? c.ac : isVis ? c.vi : c.txF,
+                  background: isHlt ? "rgba(180,35,24,.05)" : isAct ? "rgba(43,95,153,.06)" : c.bgSub,
+                }
+              }, p.icon),
+              React.createElement("div", { style: { flex: 1 } },
+                React.createElement("span", {
+                  style: { fontSize: "13px", color: isHlt ? c.ht : isAct ? c.tx : isVis ? c.txS : c.txM, fontWeight: isAct ? 500 : 400, ...ss() }
+                }, p.label)
+              ),
+              isAct && !isHlt && React.createElement("div", { style: { width: "7px", height: "7px", borderRadius: "50%", background: c.ac, flexShrink: 0 } }),
+              isHlt && React.createElement("div", { style: { width: "7px", height: "7px", borderRadius: "50%", background: c.ht, flexShrink: 0 } }),
+              isVis && React.createElement("div", { style: { fontSize: "11px", color: c.vi, flexShrink: 0 } }, "✓")
+            ),
+            i < PHASES.length - 1 && React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", padding: "1px 0" } },
+              React.createElement("div", { style: { width: "1px", height: "10px", background: isVis ? c.vi : c.bdL, transition: "background 0.3s" } })
+            )
+          );
+        }),
+
+        /* Halt node */
+        React.createElement("div", { style: { marginTop: "6px", paddingTop: "10px", borderTop: `1px solid ${c.bdL}` } },
+          React.createElement("div", {
+            style: {
+              display: "flex", alignItems: "center", gap: "12px", padding: "11px 13px", borderRadius: "8px",
+              border: `1px solid ${halted ? c.htBd : c.bdL}`,
+              background: halted ? c.htBg : "transparent",
+              animation: halted ? "haltPulse 1.5s ease-in-out infinite" : "none",
+            }
+          },
+            React.createElement("div", {
+              style: {
+                width: "34px", height: "34px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: "15px", border: `1.5px solid ${halted ? c.ht : c.bd}`, color: halted ? c.ht : c.txF,
+                background: halted ? "rgba(180,35,24,.05)" : c.bgSub,
+              }
+            }, "⊘"),
+            React.createElement("div", null,
+              React.createElement("span", { style: { fontSize: "13px", color: halted ? c.ht : c.txM, ...ss() } }, "Boundary Reached")
+            )
+          )
+        ),
+
+        /* Envelope status */
+        React.createElement("div", { style: { marginTop: "22px", paddingTop: "16px", borderTop: `1px solid ${c.bdL}` } },
+          React.createElement("div", { style: { fontSize: "10px", letterSpacing: "2.5px", color: c.txM, fontWeight: 600, marginBottom: "12px", textTransform: "uppercase", ...ss() } },
+            "Envelope Status"
+          ),
+          React.createElement("div", {
+            style: {
+              padding: "10px 14px", borderRadius: "8px",
+              border: `1px solid ${envelopeActive ? (halted ? c.htBd : done ? c.okBd : c.acBd) : c.bdL}`,
+              background: envelopeActive ? (halted ? c.htBg : done ? c.okBg : c.acBg) : "transparent",
+              transition: "all 0.5s ease",
+            }
+          },
+            React.createElement("div", {
+              style: { fontSize: "11px", color: envelopeActive ? (halted ? c.ht : done ? c.ok : c.ac) : c.txF, fontWeight: 600, ...ss() }
+            },
+              !envelopeActive ? "Idle" : halted ? "Constraints Active — Halted" : done ? "Traversal Complete" : "Constraints Active"
+            )
+          )
+        )
+      ),
+
+      /* CENTER — Console */
+      React.createElement("div", { style: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: c.bg } },
+
+        /* Log area */
+        React.createElement("div", { ref: logRef, style: { flex: 1, padding: "24px 28px", overflowY: "auto", display: "flex", flexDirection: "column" } },
+          log.length === 0 && !typingEntry
+            ? React.createElement("div", { style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "16px" } },
+                React.createElement("div", { style: { fontSize: "48px", color: c.bd } }, "◎"),
+                React.createElement("div", { style: { fontSize: "14px", color: c.txS, ...bs() } }, "Type a request to observe the envelope in motion"),
+                React.createElement("div", { style: { fontSize: "13px", color: c.txM, maxWidth: "460px", textAlign: "center", lineHeight: 1.8, fontWeight: 300, ...ss() } },
+                  "The system will attempt to process your request through a governed state space. Admissible requests traverse the envelope. Requests that fall outside the envelope encounter its boundaries."
+                ),
+                React.createElement("div", { style: { fontSize: "11px", color: c.txF, maxWidth: "420px", textAlign: "center", lineHeight: 1.7, marginTop: "4px", ...ss() } },
+                  'Try: "Summarize the quarterly report" — or — "Handle the thing we discussed" — or — "Approve the budget and send it"'
+                )
+              )
+            : React.createElement(React.Fragment, null,
+                ...log.map(entry => React.createElement("div", { key: entry.id, style: { animation: "slideIn 0.3s ease-out" } }, renderLogEntry(entry))),
+                renderTypingEntry(),
+
+                /* Review buttons */
+                phase === "review" && !halted && !done && !typing
+                  ? React.createElement("div", { style: { animation: "slideIn 0.3s ease-out", marginTop: "12px" } },
+                      draft && React.createElement("div", {
+                        style: { padding: "12px 16px", background: c.bgP, border: `1px solid ${c.bdL}`, borderRadius: "8px", marginBottom: "14px" }
+                      },
+                        React.createElement("div", { style: { fontSize: "10px", color: c.txM, letterSpacing: "1.5px", textTransform: "uppercase", fontWeight: 600, marginBottom: "6px", ...ss() } }, "System Draft"),
+                        React.createElement("div", { style: { fontSize: "13px", color: c.txS, lineHeight: 1.6, ...ss() } }, draft)
+                      ),
+                      React.createElement("div", { style: { display: "flex", gap: "8px", flexWrap: "wrap" } },
+                        React.createElement("button", {
+                          onClick: () => handleReview("approve"),
+                          style: { padding: "9px 18px", background: c.okBg, border: `1px solid ${c.okBd}`, borderRadius: "6px", color: c.ok, fontSize: "12px", cursor: "pointer", fontWeight: 600, ...ss() }
+                        }, "Approve Draft"),
+                        React.createElement("button", {
+                          onClick: () => handleReview("changes"),
+                          style: { padding: "9px 18px", background: "transparent", border: `1px solid ${c.bdL}`, borderRadius: "6px", color: c.txM, fontSize: "12px", cursor: "pointer", fontWeight: 500, ...ss() }
+                        }, "Request Changes"),
+                        React.createElement("button", {
+                          onClick: () => handleReview("finalize"),
+                          style: { padding: "9px 18px", background: "transparent", border: `1px solid ${c.bdL}`, borderRadius: "6px", color: c.txM, fontSize: "12px", cursor: "pointer", fontWeight: 500, ...ss() }
+                        }, "Ask System to Finalize")
+                      )
+                    )
+                  : null
+              )
+        ),
+
+        /* Input bar */
+        React.createElement("div", { style: { padding: "16px 28px", borderTop: `1px solid ${c.bd}`, background: c.bgP, display: "flex", gap: "10px", alignItems: "center" } },
+          React.createElement("input", {
+            type: "text", value: input,
+            onChange: (e) => setInput(e.target.value),
+            onKeyDown: (e) => { if (e.key === "Enter") handleSubmit(); },
+            disabled: phase !== null,
+            placeholder: phase !== null ? (halted || done ? "Reset to submit a new request" : "Processing...") : "Type a request...",
+            style: { flex: 1, padding: "11px 16px", background: phase !== null ? c.bgSub : c.bg, border: `1px solid ${c.bdL}`, borderRadius: "8px", color: c.tx, fontSize: "13px", ...ss() }
+          }),
+          phase === null
+            ? React.createElement("button", {
+                onClick: handleSubmit, disabled: !input.trim(),
+                style: { padding: "11px 22px", background: input.trim() ? c.acBg : "transparent", border: `1px solid ${input.trim() ? c.acBd : c.bdL}`, borderRadius: "8px", color: input.trim() ? c.ac : c.txF, fontSize: "12px", cursor: input.trim() ? "pointer" : "default", fontWeight: 600, ...ss() }
+              }, "Submit")
+            : React.createElement("button", {
+                onClick: handleReset,
+                style: { padding: "11px 22px", background: "transparent", border: `1px solid ${c.bdL}`, borderRadius: "8px", color: c.txM, fontSize: "12px", cursor: "pointer", fontWeight: 500, ...ss() }
+              }, "Reset")
+        )
+      ),
+
+      /* RIGHT — Principles */
+      React.createElement("div", {
+        style: { width: "260px", minWidth: "260px", borderLeft: `1px solid ${c.bd}`, padding: "22px 18px", overflowY: "auto", background: c.bgP }
+      },
+        React.createElement("div", { style: { fontSize: "10px", letterSpacing: "2.5px", color: c.txM, fontWeight: 600, marginBottom: "16px", textTransform: "uppercase", ...ss() } },
+          "Core Principles"
+        ),
+        ...[
+          { t: "Constraint Precedes Autonomy", d: "Governance is a property of reachable state spaces. If a transition is not admissible, the execution path does not exist." },
+          { t: "Deterministic Halt", d: "Halt is not a runtime preference. It is structural unreachability of continuation." },
+          { t: "Human Sovereignty", d: "The system cannot originate binding commitments. All execution requires explicit human instantiation." },
+          { t: "Context Integrity", d: "Context ingestion is bounded. Unverified context is excluded by default." },
+          { t: "Bounded Delegation", d: "Delegability is a strict subset of admissibility. The system cannot exceed its envelope." },
+        ].map((p, i) => React.createElement("div", {
+          key: i,
+          style: { padding: "12px 14px", borderRadius: "8px", border: `1px solid ${c.bdL}`, marginBottom: "8px" }
+        },
+          React.createElement("div", { style: { fontSize: "12px", color: c.txS, fontWeight: 600, marginBottom: "5px", ...ss() } }, p.t),
+          React.createElement("div", { style: { fontSize: "11px", color: c.txM, lineHeight: 1.6, ...ss() } }, p.d)
+        )),
+
+        React.createElement("div", { style: { marginTop: "16px", paddingTop: "14px", borderTop: `1px solid ${c.bdL}` } },
+          React.createElement("div", { style: { fontSize: "10px", letterSpacing: "2.5px", color: c.txM, fontWeight: 600, marginBottom: "12px", textTransform: "uppercase", ...ss() } },
+            "What This Demonstrates"
+          ),
+          ...[
+            "The envelope is the unit of governance.",
+            "No-action is a valid outcome.",
+            "Authority remains with the human.",
+            "The system cannot create new transitions.",
+            "Ambiguity collapses admissibility.",
+          ].map((p, i) => React.createElement("div", {
+            key: i,
+            style: { fontSize: "11px", color: c.txS, padding: "5px 0 5px 12px", lineHeight: 1.6, borderLeft: `2px solid ${c.bdL}`, marginBottom: "4px", ...ss() }
+          }, p))
+        )
+      )
+    ),
+
+    /* Footer */
+    React.createElement("div", {
+      style: { padding: "12px 36px", borderTop: `1px solid ${c.bd}`, display: "flex", justifyContent: "space-between", alignItems: "center", background: c.bgP }
+    },
+      React.createElement("div", { style: { fontSize: "10px", color: c.txF, ...ss() } }, "Governance Envelope Demonstrator — v1.0"),
+      React.createElement("div", { style: { fontSize: "10px", color: c.txF, ...ss() } }, "Soft Armor Labs")
+    )
+  );
+}
+
+ReactDOM.render(React.createElement(App), document.getElementById("root"));
+</script>
+</body>
+</html>
