@@ -2,6 +2,9 @@
 
 The demo isn't the product. The demo is the filter.
 
+Why not React?
+This is the reference envelope and interaction contract; internal implementations are free to use React, Rust, whatever, as long as they preserve these invariants and transitions. The HTML demonstrator is deliberately minimal so it’s easier to audit against the invariants and harder to cargo‑cult the implementation.
+
 An interactive demonstrator for governance envelope architecture.
 
 The system processes requests through a bounded state space. Admissible requests traverse the envelope. Requests that fall outside the envelope encounter its boundaries.
